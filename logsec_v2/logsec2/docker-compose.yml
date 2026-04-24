@@ -1,0 +1,72 @@
+# ============================================================
+# docker-compose.yml — LogSec (versão corrigida)
+# ============================================================
+# Para rodar: docker compose up --build
+# Para parar: docker compose down
+# ============================================================
+
+version: '3.9'
+
+services:
+
+  # ----------------------------------------------------------
+  # CONTAINER 1 — Alert (sobe PRIMEIRO porque os outros dependem)
+  # ----------------------------------------------------------
+  alert:
+    build: ./alert
+    container_name: logsec-alert
+    ports:
+      - "5001:5001"
+    networks:
+      - logsec-net
+    restart: always                  # Reinicia automaticamente se cair
+    healthcheck:                     # Docker verifica se o serviço está saudável
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # CONTAINER 2 — Processor (depende do Alert estar saudável)
+  # ----------------------------------------------------------
+  processor:
+    build: ./processor
+    container_name: logsec-processor
+    ports:
+      - "5000:5000"
+    environment:
+      - ALERT_URL=http://alert:5001
+    depends_on:
+      alert:
+        condition: service_healthy   # Espera o Alert passar no healthcheck
+    networks:
+      - logsec-net
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ----------------------------------------------------------
+  # CONTAINER 3 — Producer (sobe por ÚLTIMO, após os outros)
+  # ----------------------------------------------------------
+  producer:
+    build: ./producer
+    container_name: logsec-producer
+    environment:
+      - PROCESSOR_URL=http://processor:5000
+      - INTERVAL=3
+    depends_on:
+      processor:
+        condition: service_healthy   # Espera o Processor passar no healthcheck
+    networks:
+      - logsec-net
+    restart: always
+
+# ----------------------------------------------------------
+# Rede interna compartilhada entre os containers
+# ----------------------------------------------------------
+networks:
+  logsec-net:
+    driver: bridge
